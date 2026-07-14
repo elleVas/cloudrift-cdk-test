@@ -1,0 +1,41 @@
+# CDK
+cdk.out/
+cdk.context.json
+
+# TypeScript compiled output
+*.js
+*.d.ts
+*.js.map
+!lambda/**/*.js
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+._*
+
+# Environment / Secrets
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Reports (generated, not versioned)
+reports/
+
+# Temporary files
+tmp/
+.tmp/
