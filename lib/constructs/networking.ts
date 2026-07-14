@@ -65,13 +65,15 @@ export class Networking extends Construct {
 
     // ─── NAT Gateway cost note
     if (config.includeNatGateway) {
-      new cdk.CfnOutput(this, 'NatGatewayNote', {
+      const natOutput = new cdk.CfnOutput(this, 'NatGatewayNote', {
         value: 'NAT Gateway deployed — ~$1.08/day. Destroy ASAP after testing.',
       });
+      natOutput.overrideLogicalId('NatGatewayNote');
     }
 
-    new cdk.CfnOutput(this, 'VpcId', {
+    const vpcOutput = new cdk.CfnOutput(this, 'VpcId', {
       value: this.vpc.vpcId,
     });
+    vpcOutput.overrideLogicalId('VpcId');
   }
 }

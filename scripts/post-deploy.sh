@@ -17,7 +17,7 @@ echo "→ Reading stack outputs from $STACK_NAME..."
 EC2_INSTANCE_ID=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
   --region "$REGION" \
-  --query "Stacks[0].Outputs[?OutputKey=='ComputeStoppedInstanceId'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='StoppedInstanceId'].OutputValue" \
   --output text)
 
 # --- Stop EC2 instance ---

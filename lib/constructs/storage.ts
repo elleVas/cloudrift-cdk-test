@@ -55,6 +55,10 @@ export class Storage extends Construct {
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
       ],
       inlinePolicies: {
+        // NOTE: Resource '*' is required because ec2:CreateVolume, ec2:CreateSnapshot,
+        // and ec2:CreateTags do not support resource-level ARN constraints at creation
+        // time (the ARN is not known until after the resource exists). This is scoped
+        // to a Lambda running only during stack create/delete in a sandbox account.
         EbsOps: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
@@ -91,9 +95,10 @@ export class Storage extends Construct {
       },
     });
 
-    new cdk.CfnOutput(this, 'OrphanSnapshotId', {
+    const output = new cdk.CfnOutput(this, 'OrphanSnapshotId', {
       value: cr.getAttString('SnapshotId'),
       description: 'EBS snapshot whose source volume was deleted',
     });
+    output.overrideLogicalId('OrphanSnapshotId');
   }
 }

@@ -3,7 +3,7 @@
 # values and compares timing + findings consistency.
 set -euo pipefail
 
-CLOUDRIFT_PATH="${CLOUDRIFT_PATH:-/Users/vasinilele/progetti/cloudrift}"
+CLOUDRIFT_PATH="${CLOUDRIFT_PATH:-../../cloudrift}"
 CLI="$CLOUDRIFT_PATH/apps/cli/dist/main.js"
 REGION="${AWS_REGION:-us-east-1}"
 OUT_DIR="/tmp/cloudrift-concurrency-test"
@@ -111,7 +111,7 @@ if [ "${TIMES[0]}" -gt 0 ]; then
   echo "  Speedups vs concurrency=1 (${TIMES[0]}s):"
   for i in "${!CONCURRENCY_VALUES[@]}"; do
     if [ "$i" -gt 0 ] && [ "${TIMES[$i]}" -gt 0 ]; then
-      SPEEDUP=$(python3 -c "print(f'{${TIMES[0]}/${TIMES[$i]:.1f}x')" 2>/dev/null || echo "?")
+      SPEEDUP=$(python3 -c "import sys; print(f'{float(sys.argv[1])/float(sys.argv[2]):.1f}x')" "${TIMES[0]}" "${TIMES[$i]}" 2>/dev/null || echo "?")
       echo "    concurrency=${CONCURRENCY_VALUES[$i]}: ${TIMES[$i]}s (${SPEEDUP})"
     fi
   done

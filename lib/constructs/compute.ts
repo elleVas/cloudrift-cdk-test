@@ -51,9 +51,10 @@ export class Compute extends Construct {
       }],
     });
 
-    new cdk.CfnOutput(this, 'StoppedInstanceId', {
+    const output = new cdk.CfnOutput(this, 'StoppedInstanceId', {
       value: this.stoppedInstance.instanceId,
       description: 'EC2 instance to stop post-deploy',
     });
+    output.overrideLogicalId('StoppedInstanceId');
   }
 }

@@ -5,6 +5,7 @@ const {
   DeleteVolumeCommand,
   DeleteSnapshotCommand,
   DescribeSnapshotsCommand,
+  DescribeVolumesCommand,
 } = require('@aws-sdk/client-ec2');
 const https = require('https');
 const url = require('url');
@@ -19,7 +20,7 @@ const url = require('url');
  *   Result: a snapshot whose source volume no longer exists.
  *
  * On Delete:
- *   Cleans up any snapshots tagged with CreatedBy=cloudrift-cdk-test.
+ *   Cleans up any snapshots AND volumes tagged with CreatedBy=cloudrift-cdk-test.
  */
 
 async function sendResponse(event, status, data, physicalId) {
@@ -52,6 +53,18 @@ async function sendResponse(event, status, data, physicalId) {
   });
 }
 
+/**
+ * Attempt to delete a volume, logging but not throwing on failure.
+ */
+async function safeDeleteVolume(ec2, volumeId) {
+  try {
+    await ec2.send(new DeleteVolumeCommand({ VolumeId: volumeId }));
+    console.log('Deleted volume:', volumeId);
+  } catch (e) {
+    console.warn(`Failed to delete volume ${volumeId} (non-fatal):`, e.message);
+  }
+}
+
 exports.handler = async (event) => {
   const ec2 = new EC2Client({});
   const az = event.ResourceProperties.AvailabilityZone;
@@ -72,8 +85,23 @@ exports.handler = async (event) => {
           console.log('Deleted snapshot:', snap.SnapshotId);
         }
       } catch (e) {
-        console.warn('Cleanup error (non-fatal):', e.message);
+        console.warn('Snapshot cleanup error (non-fatal):', e.message);
       }
+
+      // Cleanup: delete any leaked volumes tagged by this project
+      try {
+        const volDesc = await ec2.send(
+          new DescribeVolumesCommand({
+            Filters: [{ Name: 'tag:CreatedBy', Values: ['cloudrift-cdk-test'] }],
+          })
+        );
+        for (const vol of volDesc.Volumes || []) {
+          await safeDeleteVolume(ec2, vol.VolumeId);
+        }
+      } catch (e) {
+        console.warn('Volume cleanup error (non-fatal):', e.message);
+      }
+
       await sendResponse(event, 'SUCCESS', {}, physicalId);
       return;
     }
@@ -96,38 +124,48 @@ exports.handler = async (event) => {
         ],
       })
     );
-    console.log('Volume created:', vol.VolumeId);
+    const volumeId = vol.VolumeId;
+    console.log('Volume created:', volumeId);
 
-    // Wait for volume to be available
-    await new Promise((r) => setTimeout(r, 5000));
+    let snapshotId;
+    try {
+      // Wait for volume to be available
+      await new Promise((r) => setTimeout(r, 5000));
 
-    console.log('Creating snapshot of', vol.VolumeId);
-    const snap = await ec2.send(
-      new CreateSnapshotCommand({
-        VolumeId: vol.VolumeId,
-        Description: 'cloudrift-test orphan snapshot (source volume will be deleted)',
-        TagSpecifications: [
-          {
-            ResourceType: 'snapshot',
-            Tags: [
-              { Key: 'Name', Value: 'cloudrift-test-orphan-snapshot' },
-              { Key: 'CreatedBy', Value: 'cloudrift-cdk-test' },
-              { Key: 'Project', Value: 'cloudrift-test' },
-            ],
-          },
-        ],
-      })
-    );
-    console.log('Snapshot created:', snap.SnapshotId);
+      console.log('Creating snapshot of', volumeId);
+      const snap = await ec2.send(
+        new CreateSnapshotCommand({
+          VolumeId: volumeId,
+          Description: 'cloudrift-test orphan snapshot (source volume will be deleted)',
+          TagSpecifications: [
+            {
+              ResourceType: 'snapshot',
+              Tags: [
+                { Key: 'Name', Value: 'cloudrift-test-orphan-snapshot' },
+                { Key: 'CreatedBy', Value: 'cloudrift-cdk-test' },
+                { Key: 'Project', Value: 'cloudrift-test' },
+              ],
+            },
+          ],
+        })
+      );
+      snapshotId = snap.SnapshotId;
+      console.log('Snapshot created:', snapshotId);
 
-    // Wait for snapshot to initiate before deleting volume
-    await new Promise((r) => setTimeout(r, 10000));
+      // Wait for snapshot to initiate before deleting volume
+      await new Promise((r) => setTimeout(r, 10000));
+    } finally {
+      // Always delete the temporary volume, even if snapshot creation failed
+      console.log('Deleting source volume:', volumeId);
+      await safeDeleteVolume(ec2, volumeId);
+      console.log('Volume cleanup complete — snapshot is now orphaned (if created)');
+    }
 
-    console.log('Deleting source volume:', vol.VolumeId);
-    await ec2.send(new DeleteVolumeCommand({ VolumeId: vol.VolumeId }));
-    console.log('Volume deleted — snapshot is now orphaned');
+    if (!snapshotId) {
+      throw new Error('Snapshot was not created — volume was cleaned up but CR must fail');
+    }
 
-    await sendResponse(event, 'SUCCESS', { SnapshotId: snap.SnapshotId }, snap.SnapshotId);
+    await sendResponse(event, 'SUCCESS', { SnapshotId: snapshotId }, snapshotId);
   } catch (err) {
     console.error('Error:', err);
     await sendResponse(event, 'FAILED', {}, physicalId);
