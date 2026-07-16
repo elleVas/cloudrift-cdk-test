@@ -5,6 +5,10 @@ import { Networking } from './constructs/networking';
 import { Compute } from './constructs/compute';
 import { Storage } from './constructs/storage';
 import { Serverless } from './constructs/serverless';
+import { Databases } from './constructs/databases';
+import { Analytics } from './constructs/analytics';
+import { Streaming } from './constructs/streaming';
+import { Workspaces } from './constructs/workspaces';
 
 export interface CloudriftTestStackProps extends cdk.StackProps {
   readonly config: IStackConfig;
@@ -38,5 +42,19 @@ export class CloudriftTestStack extends cdk.Stack {
 
     // ─── Serverless: Lambda, DynamoDB, CloudWatch Log Groups
     new Serverless(this, 'Serverless');
+
+    // ─── Databases: RDS (stopped), DocumentDB, Neptune, ElastiCache
+    new Databases(this, 'Databases', { vpc: networking.vpc });
+
+    // ─── Analytics: Redshift, OpenSearch
+    new Analytics(this, 'Analytics', { vpc: networking.vpc });
+
+    // ─── Streaming: Kinesis, MSK, Amazon MQ
+    new Streaming(this, 'Streaming', { vpc: networking.vpc });
+
+    // ─── Workspaces (opt-in): Simple AD + AlwaysOn WorkSpace
+    if (config.includeWorkspaces) {
+      new Workspaces(this, 'Workspaces', { vpc: networking.vpc });
+    }
   }
 }

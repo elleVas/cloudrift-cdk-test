@@ -13,6 +13,7 @@ AWS CDK v2 (TypeScript) project that deploys intentionally **wasted** AWS resour
 - [Quick Start](#quick-start)
 - [Deployed Resources](#deployed-resources)
 - [NAT Gateway (optional)](#nat-gateway-optional)
+- [WorkSpaces (optional)](#workspaces-optional)
 - [Architecture](#architecture)
 - [cloudrift Configuration](#cloudrift-configuration)
 - [Estimated Costs](#estimated-costs)
@@ -129,7 +130,23 @@ npm run test:full
 | DynamoDB table PROVISIONED (zero traffic) | optimization | `dynamodb-overprovisioned` | 1 |
 | Standalone ENI | waste | `eni-orphaned` | 1 |
 | EBS Snapshot (source volume deleted) | waste | `ebs-snapshot` | 1 |
+| RDS db.t3.micro (stopped) | waste | `rds-instance` | 1 |
+| EFS (zero I/O) | waste | `efs-unused` | 1 |
+| ElastiCache cache.t4g.micro (zero connections) | waste | `elasticache-idle` | 1 |
+| Redshift dc2.large (zero connections) | waste | `redshift-idle-cluster` | 1 |
+| OpenSearch t3.small.search (zero traffic) | waste | `opensearch-idle-domain` | 1 |
+| MSK 2× kafka.t3.small (zero broker traffic) | waste | `msk-idle-cluster` | 1 |
+| FSx for Lustre 1200GiB (zero I/O) | waste | `fsx-idle-filesystem` | 1 |
+| DocumentDB db.t3.medium (zero connections) | waste | `documentdb-idle-instance` | 1 |
+| Neptune db.t3.medium (zero query traffic) | waste | `neptune-idle-instance` | 1 |
+| Amazon MQ mq.t3.micro (zero traffic) | waste | `mq-idle-broker` | 1 |
+| VPN Site-to-Site connection (zero traffic) | waste | `vpn-connection-idle` | 1 |
+| Transit Gateway + VPC attachment (zero traffic) | waste | `transit-gateway-idle-attachment` | 1 |
+| Kinesis stream, 1 shard (zero activity) | waste | `kinesis-provisioned-idle-stream` | 1 |
 | NAT Gateway (optional, zero traffic) | waste | `nat-gateway` | 0–1 |
+| WorkSpaces AlwaysOn (optional, never connected) | waste | `workspaces-idle` | 0–1 |
+
+`ElastiCache`, `Redshift`, `OpenSearch`, `MSK`, `DocumentDB`, `Neptune`, `MQ`, and `WorkSpaces` scanners require `--live-pricing` — `npm run validate`/`validate:cli`/`validate:pdf` already pass it.
 
 ---
 
@@ -147,6 +164,18 @@ cdk deploy -c includeNatGateway=true
 
 ---
 
+## WorkSpaces (optional)
+
+Deploys a Simple AD directory + one AlwaysOn WorkSpace to validate `workspaces-idle`. Off by default because Simple AD takes 20-45min to reach `ACTIVE`, on top of the WorkSpace's own provisioning time — this roughly doubles the deploy cycle compared to everything else in this stack.
+
+```bash
+INCLUDE_WORKSPACES=true npm run deploy
+# or
+cdk deploy -c includeWorkspaces=true
+```
+
+---
+
 ## Architecture
 
 The project follows the **Construct-per-concern** pattern — each domain area is encapsulated in its own L3 construct:
@@ -159,15 +188,21 @@ cloudrift-cdk-test/
 │   ├── config.ts                     # IStackConfig interface (feature toggles)
 │   ├── cloudrift-test.stack.ts       # Main stack — composes constructs
 │   └── constructs/
-│       ├── networking.ts             # VPC, EIP, ENI, ALB
+│       ├── networking.ts             # VPC, EIP, ENI, ALB, NAT, VPN, Transit Gateway
 │       ├── compute.ts                # EC2 instances (stopped + idle)
-│       ├── storage.ts                # EBS volumes, S3, orphan snapshot CR
-│       └── serverless.ts             # Lambda, DynamoDB, Log Groups
+│       ├── storage.ts                # EBS volumes, S3, orphan snapshot CR, EFS, FSx
+│       ├── serverless.ts             # Lambda, DynamoDB, Log Groups
+│       ├── databases.ts              # RDS (stopped), DocumentDB, Neptune, ElastiCache
+│       ├── analytics.ts              # Redshift, OpenSearch
+│       ├── streaming.ts              # Kinesis, MSK, Amazon MQ
+│       └── workspaces.ts             # Simple AD + WorkSpaces (opt-in)
 ├── lambda/
-│   └── orphan-snapshot/
-│       └── index.js                  # Custom Resource handler
+│   ├── orphan-snapshot/
+│   │   └── index.js                  # Custom Resource handler
+│   └── create-ad-user/
+│       └── index.js                  # Custom Resource handler (WorkSpaces AD user)
 ├── scripts/
-│   ├── post-deploy.sh                # Stops EC2 after deploy
+│   ├── post-deploy.sh                # Stops EC2 + RDS after deploy
 │   ├── validate.sh                   # Runs cloudrift & checks findings
 │   └── concurrency-test.sh
 ├── docs/
@@ -213,10 +248,14 @@ pnpm nx build cli
 
 ## Estimated Costs
 
+These are monthly-equivalent figures, useful for comparing resources — not what a real deploy→validate→destroy cycle costs (a few dollars, see the full breakdown).
+
 | Scenario | Cost/day | Cost/week |
 |----------|----------|-----------|
-| Without NAT Gateway | ~$1.20 | ~$8.40 |
-| With NAT Gateway | ~$2.30 | ~$16.10 |
+| Base stack only, without NAT Gateway | ~$1.20 | ~$8.40 |
+| Base stack + NAT Gateway | ~$2.28 | ~$15.96 |
+| Full stack (base + all vertical scanners) | ~$22.30 | ~$156.10 |
+| Full stack + WorkSpaces | ~$30.70 | ~$214.90 |
 
 Full breakdown: [docs/en/COSTS.md](docs/en/COSTS.md)
 
@@ -230,6 +269,7 @@ Full breakdown: [docs/en/COSTS.md](docs/en/COSTS.md)
 - Deployed resources are intentionally wasteful (SGs are locked down, no public data access, but the posture is not production-grade)
 - Resources are NOT tagged with `cloudrift:ignore` (otherwise they wouldn't be detected)
 - `RemovalPolicy.DESTROY` on everything for easy cleanup
+- **Note on `unsafeUnwrap()`**: `workspaces.ts` and `streaming.ts` use `secretValue.unsafeUnwrap()` to pass secrets to L1 CFN resources that don't support dynamic references. This means the secret value appears in plaintext in the synthesized CloudFormation template. Acceptable for a disposable test stack in a sandbox account — do NOT copy this pattern into production code.
 
 ---
 
@@ -237,14 +277,16 @@ Full breakdown: [docs/en/COSTS.md](docs/en/COSTS.md)
 
 ### cloudrift doesn't find resources
 
-1. Did you run `npm run post-deploy`? (EC2 must be stopped)
-2. Has at least 5 minutes passed? (CloudWatch needs time to register zero-traffic)
+1. Did you run `npm run post-deploy`? (EC2 and RDS must be stopped)
+2. Has at least 5-10 minutes passed? (CloudWatch needs time to register zero-traffic)
 3. Are you using `--min-age-days 0`? (the validation script does this, but remember it when running manually)
+4. Are you using `--live-pricing`? Required for ElastiCache, Redshift, OpenSearch, MSK, DocumentDB, Neptune, MQ, and WorkSpaces — without it those scanners never run (`npm run validate*` already pass it)
 
 ### cdk deploy fails
 
 1. Did you bootstrap? `cdk bootstrap aws://ACCOUNT/REGION`
-2. Do credentials have sufficient permissions? You need broad permissions (EC2, ELB, S3, Lambda, DynamoDB, CloudWatch, IAM, etc.)
+2. Do credentials have sufficient permissions? You need broad permissions — see [docs/en/GUIDE.md](docs/en/GUIDE.md) for the full IAM policy (EC2, RDS, ElastiCache, Redshift, OpenSearch, MSK, FSx, EFS, Amazon MQ, Kinesis, ELB, S3, Lambda, DynamoDB, CloudWatch, IAM, Secrets Manager, and — with `includeWorkspaces` — WorkSpaces/Directory Service)
+3. WorkSpaces bundle ID invalid? See "Known Limitations" in [docs/en/ARCHITECTURE.md](docs/en/ARCHITECTURE.md)
 
 ---
 

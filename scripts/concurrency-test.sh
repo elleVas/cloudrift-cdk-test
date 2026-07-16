@@ -50,6 +50,7 @@ for CONC in "${CONCURRENCY_VALUES[@]}"; do
     --regions "$REGION" \
     --all-services \
     --min-age-days 0 \
+    --live-pricing \
     --format json \
     > "$REPORT" 2>/dev/null || true
   END_TIME=$(date +%s)

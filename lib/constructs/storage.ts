@@ -3,6 +3,8 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as efs from 'aws-cdk-lib/aws-efs';
+import * as fsx from 'aws-cdk-lib/aws-fsx';
 import { Construct } from 'constructs';
 
 export interface StorageProps {
@@ -43,6 +45,24 @@ export class Storage extends Construct {
         autoDeleteObjects: true,
       });
     }
+
+    // ─── EFS filesystem, zero I/O — waste: efs-unused
+    new efs.FileSystem(this, 'UnusedEfs', {
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // ─── FSx for Lustre filesystem, zero I/O — waste: fsx-idle-filesystem
+    //     Lustre (not Windows) chosen specifically because it needs no Active
+    //     Directory prerequisite, unlike FSx for Windows File Server.
+    new fsx.LustreFileSystem(this, 'IdleFsx', {
+      vpc,
+      vpcSubnet: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnets[0],
+      storageCapacityGiB: 1200,
+      lustreConfiguration: { deploymentType: fsx.LustreDeploymentType.SCRATCH_2 },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
 
     // ─── Orphan EBS Snapshot via Custom Resource
     this.createOrphanSnapshot(vpc);

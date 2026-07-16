@@ -27,27 +27,38 @@ Questa guida spiega come creare un utente IAM con i permessi necessari per deplo
       "Action": [
         "cloudformation:*",
         "ec2:*",
-        "rds:*",
         "elasticloadbalancing:*",
         "s3:*",
         "logs:*",
         "lambda:*",
         "dynamodb:*",
         "iam:*",
-        "secretsmanager:*",
         "ssm:*",
         "ecr:*",
         "sts:GetCallerIdentity",
-        "elasticfilesystem:DescribeFileSystems",
-        "elasticache:DescribeCacheClusters",
         "cloudwatch:GetMetricStatistics",
-        "pricing:GetProducts"
+        "pricing:GetProducts",
+        "rds:*",
+        "elasticache:*",
+        "redshift:*",
+        "es:*",
+        "kafka:*",
+        "fsx:*",
+        "elasticfilesystem:*",
+        "mq:*",
+        "kinesis:*",
+        "secretsmanager:*",
+        "workspaces:*",
+        "ds:*",
+        "ds-data:*"
       ],
       "Resource": "*"
     }
   ]
 }
 ```
+
+> `rds:*` copre RDS, DocumentDB e Neptune (usano tutti e tre il namespace API di RDS). `workspaces:*`/`ds:*`/`ds-data:*` servono solo se deployi con `includeWorkspaces: true`.
 
 4. Clicca **Next**
 5. Nome: `CloudriftTestFullAccess`
@@ -119,12 +130,16 @@ npx cdk bootstrap
 
 ```bash
 npm run deploy
+# Il deploy impiega 30-60min: MSK, DocumentDB, Neptune, Redshift e
+# OpenSearch impiegano 10-20min ciascuno per il provisioning.
 npm run post-deploy
-# Aspetta 5 minuti
+# Aspetta 5-10 minuti
 npm run validate:cli   # output a terminale
 npm run validate:pdf   # output a terminale + PDF
 npm run validate       # check automatico pass/fail
 ```
+
+Opzionale: `INCLUDE_WORKSPACES=true npm run deploy` deploya anche Simple AD + WorkSpace (scanner `workspaces-idle`) — aggiunge 20-45min al deploy perché Simple AD raggiunga `ACTIVE`, oltre al tempo del workspace stesso.
 
 ---
 
@@ -181,7 +196,7 @@ aws sso login --profile il-nome-scelto
 
 | Comando | Cosa fa |
 |---------|---------|
-| `npm run deploy` | Deploya lo stack (~239 risorse) |
+| `npm run deploy` | Deploya lo stack (~102 risorse, ~108 con `includeWorkspaces`) |
 | `npm run post-deploy` | Ferma EC2 e RDS |
 | `npm run validate` | Check automatico (pass/fail per ogni scanner) |
 | `npm run validate:cli` | Cloudrift con output tabelle a terminale |

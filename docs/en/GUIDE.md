@@ -37,13 +37,28 @@ This guide explains how to create an IAM user with the permissions needed to dep
         "ecr:*",
         "sts:GetCallerIdentity",
         "cloudwatch:GetMetricStatistics",
-        "pricing:GetProducts"
+        "pricing:GetProducts",
+        "rds:*",
+        "elasticache:*",
+        "redshift:*",
+        "es:*",
+        "kafka:*",
+        "fsx:*",
+        "elasticfilesystem:*",
+        "mq:*",
+        "kinesis:*",
+        "secretsmanager:*",
+        "workspaces:*",
+        "ds:*",
+        "ds-data:*"
       ],
       "Resource": "*"
     }
   ]
 }
 ```
+
+> `rds:*` covers RDS, DocumentDB, and Neptune (all three use the RDS API namespace). `workspaces:*`/`ds:*`/`ds-data:*` are only needed if you deploy with `includeWorkspaces: true`.
 
 4. Click **Next**
 5. Name: `CloudriftTestFullAccess`
@@ -115,12 +130,16 @@ npx cdk bootstrap
 
 ```bash
 npm run deploy
+# Deploy takes 30-60min: MSK, DocumentDB, Neptune, Redshift, and
+# OpenSearch each take 10-20min to provision.
 npm run post-deploy
-# Wait 5 minutes
+# Wait 5-10 minutes
 npm run validate:cli   # terminal output
 npm run validate:pdf   # terminal output + PDF
 npm run validate       # automated pass/fail check
 ```
+
+Optional: `INCLUDE_WORKSPACES=true npm run deploy` also deploys a Simple AD + WorkSpace (`workspaces-idle` scanner) — adds 20-45min to the deploy for Simple AD to reach `ACTIVE`, on top of the workspace itself.
 
 ---
 
@@ -176,7 +195,7 @@ aws sso login --profile your-chosen-name
 | Command | What it does |
 |---------|--------------|
 | `npm run deploy` | Deploys the stack |
-| `npm run post-deploy` | Stops EC2 instance |
+| `npm run post-deploy` | Stops EC2 and RDS instances |
 | `npm run validate` | Automated check (pass/fail per scanner) |
 | `npm run validate:cli` | cloudrift with terminal table output |
 | `npm run validate:pdf` | cloudrift with tables + PDF report |

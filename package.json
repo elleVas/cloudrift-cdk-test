@@ -11,8 +11,8 @@
     "destroy": "cdk destroy --force",
     "post-deploy": "bash scripts/post-deploy.sh",
     "validate": "bash scripts/validate.sh",
-    "validate:pdf": "node ${CLOUDRIFT_PATH:-../../cloudrift}/apps/cli/dist/main.js analyze --regions ${AWS_REGION:-us-east-1} --all-services --min-age-days 0 --pdf",
-    "validate:cli": "node ${CLOUDRIFT_PATH:-../../cloudrift}/apps/cli/dist/main.js analyze --regions ${AWS_REGION:-us-east-1} --all-services --min-age-days 0",
+    "validate:pdf": "node ${CLOUDRIFT_PATH:-../../cloudrift}/apps/cli/dist/main.js analyze --regions ${AWS_REGION:-us-east-1} --all-services --min-age-days 0 --live-pricing --pdf",
+    "validate:cli": "node ${CLOUDRIFT_PATH:-../../cloudrift}/apps/cli/dist/main.js analyze --regions ${AWS_REGION:-us-east-1} --all-services --min-age-days 0 --live-pricing",
     "test:full": "npm run deploy && npm run post-deploy && echo '⏳ Waiting 5 min for CloudWatch metrics...' && sleep 300 && npm run validate",
     "cleanup": "npm run destroy"
   },

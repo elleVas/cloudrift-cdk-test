@@ -23,6 +23,9 @@ fi
 echo "→ Using cloudrift at: $CLOUDRIFT_MAIN"
 echo "→ Scanning region: $REGION"
 echo "→ Using --min-age-days 0 (no grace period for test resources)"
+echo "→ Using --live-pricing (required for the ElastiCache/Redshift/OpenSearch/MSK/"
+echo "  DocumentDB/Neptune/MQ/WorkSpaces scanners — they aren't even registered"
+echo "  without this flag)"
 echo ""
 
 # --- Run cloudrift ---
@@ -31,6 +34,7 @@ node "$CLOUDRIFT_MAIN" analyze \
   --regions "$REGION" \
   --all-services \
   --min-age-days 0 \
+  --live-pricing \
   --format json \
   > "$REPORT_FILE" 2>/dev/null || true
 
@@ -57,11 +61,31 @@ EXPECTED_KINDS=(
   "dynamodb-overprovisioned"
   "eni-orphaned"
   "ebs-snapshot"
+  "rds-instance"
+  "efs-unused"
+  "elasticache-idle"
+  "redshift-idle-cluster"
+  "opensearch-idle-domain"
+  "msk-idle-cluster"
+  "fsx-idle-filesystem"
+  "documentdb-idle-instance"
+  "neptune-idle-instance"
+  "mq-idle-broker"
+  "vpn-connection-idle"
+  "transit-gateway-idle-attachment"
+  "kinesis-provisioned-idle-stream"
 )
+# rds-underutilized is intentionally NOT tested — see docs/en/ARCHITECTURE.md
+# "Known Limitations" (same MAX-CPU-over-fixed-window issue as ec2-underutilized).
 
 # NAT Gateway is optional
 if [ "${INCLUDE_NAT_GATEWAY:-false}" = "true" ]; then
   EXPECTED_KINDS+=("nat-gateway")
+fi
+
+# WorkSpaces is optional (Simple AD adds 20-45min to the deploy cycle)
+if [ "${INCLUDE_WORKSPACES:-false}" = "true" ]; then
+  EXPECTED_KINDS+=("workspaces-idle")
 fi
 
 PASS_COUNT=0

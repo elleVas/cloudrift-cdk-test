@@ -63,6 +63,38 @@ export class Networking extends Construct {
       }),
     });
 
+    // ─── VPN Site-to-Site connection, zero tunnel traffic — waste: vpn-connection-idle
+    //     Dummy customer gateway IP: no real tunnel needs to come up, the
+    //     connection just needs to reach `available` state.
+    const vpnGateway = new ec2.CfnVPNGateway(this, 'VpnGateway', { type: 'ipsec.1' });
+    const vpcVpnAttachment = new ec2.CfnVPCGatewayAttachment(this, 'VpnGatewayAttachment', {
+      vpcId: this.vpc.vpcId,
+      vpnGatewayId: vpnGateway.ref,
+    });
+    const customerGateway = new ec2.CfnCustomerGateway(this, 'CustomerGateway', {
+      type: 'ipsec.1',
+      bgpAsn: 65000,
+      ipAddress: '203.0.113.1', // TEST-NET-3 (RFC 5737) — unroutable placeholder, no real tunnel needed
+    });
+    const idleVpnConnection = new ec2.CfnVPNConnection(this, 'IdleVpnConnection', {
+      type: 'ipsec.1',
+      customerGatewayId: customerGateway.ref,
+      vpnGatewayId: vpnGateway.ref,
+      staticRoutesOnly: true,
+    });
+    idleVpnConnection.addDependency(vpcVpnAttachment);
+
+    // ─── Transit Gateway + VPC attachment, zero traffic
+    //     waste: transit-gateway-idle-attachment
+    const transitGateway = new ec2.CfnTransitGateway(this, 'TransitGateway', {
+      description: 'cloudrift-test idle transit gateway',
+    });
+    new ec2.CfnTransitGatewayAttachment(this, 'IdleTransitGatewayAttachment', {
+      transitGatewayId: transitGateway.ref,
+      vpcId: this.vpc.vpcId,
+      subnetIds: this.vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds,
+    });
+
     // ─── NAT Gateway cost note
     if (config.includeNatGateway) {
       const natOutput = new cdk.CfnOutput(this, 'NatGatewayNote', {
