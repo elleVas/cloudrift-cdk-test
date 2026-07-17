@@ -28,9 +28,9 @@ AWS CDK v2 (TypeScript) project that deploys intentionally **wasted** AWS resour
 
 - **Node.js 18+**
 - **AWS CLI v2** configured with credentials for a **sandbox** account (never production)
-- **AWS CDK CLI**: `npm install -g aws-cdk`
+- **AWS CDK CLI**: `npm install -g aws-cdk` (or use `npx cdk` — already in devDependencies)
 - **cloudrift** cloned and built (see [cloudrift Configuration](#cloudrift-configuration))
-- **CDK bootstrapped account**: `cdk bootstrap aws://ACCOUNT_ID/REGION`
+- **CDK bootstrapped account**: `npx cdk bootstrap aws://ACCOUNT_ID/REGION`
 
 ---
 
@@ -62,19 +62,23 @@ aws sts get-caller-identity
 
 ### Region
 
-The stack deploys to `us-east-1` by default. To change:
+The stack deploys to whatever region your AWS CLI profile is configured for. All scripts auto-detect the region from `AWS_REGION` → `AWS_DEFAULT_REGION` → `aws configure get region`, in that order.
 
 ```bash
-export CDK_DEFAULT_REGION=eu-west-1
-# or
-export AWS_DEFAULT_REGION=eu-west-1
+# Check which region your profile uses
+aws configure get region
+
+# Override if needed
+export AWS_DEFAULT_REGION=eu-central-1
 ```
+
+> **Important**: all commands (`deploy`, `post-deploy`, `validate`, `cleanup`) use the same auto-detection logic. You do NOT need to prefix commands with `AWS_REGION=...` as long as your profile is set correctly.
 
 ### Bootstrap CDK (one-time per account/region)
 
 ```bash
-cdk bootstrap aws://ACCOUNT_ID/REGION
-# Example: cdk bootstrap aws://123456789012/us-east-1
+npx cdk bootstrap aws://ACCOUNT_ID/REGION
+# Example: npx cdk bootstrap aws://123456789012/eu-central-1
 ```
 
 ---
@@ -85,16 +89,16 @@ cdk bootstrap aws://ACCOUNT_ID/REGION
 # 1. Install dependencies
 npm install
 
-# 2. Deploy resources
+# 2. Deploy resources (~35 min — MSK, Neptune, DocumentDB, Redshift, OpenSearch are slow)
 npm run deploy
 
-# 3. Stop EC2 instance (CDK cannot create them in "stopped" state)
+# 3. Stop EC2 + RDS instances (CDK cannot create them in "stopped" state)
 npm run post-deploy
 
 # 4. Wait ~5 minutes for CloudWatch metrics, then validate
 npm run validate
 
-# 5. IMPORTANT: destroy everything to avoid accumulating costs
+# 5. IMPORTANT: destroy everything to avoid accumulating costs (~20 min)
 npm run cleanup
 ```
 
@@ -133,7 +137,7 @@ npm run test:full
 | RDS db.t3.micro (stopped) | waste | `rds-instance` | 1 |
 | EFS (zero I/O) | waste | `efs-unused` | 1 |
 | ElastiCache cache.t4g.micro (zero connections) | waste | `elasticache-idle` | 1 |
-| Redshift dc2.large (zero connections) | waste | `redshift-idle-cluster` | 1 |
+| Redshift ra3.xlplus (zero connections) | waste | `redshift-idle-cluster` | 1 |
 | OpenSearch t3.small.search (zero traffic) | waste | `opensearch-idle-domain` | 1 |
 | MSK 2× kafka.t3.small (zero broker traffic) | waste | `msk-idle-cluster` | 1 |
 | FSx for Lustre 1200GiB (zero I/O) | waste | `fsx-idle-filesystem` | 1 |
@@ -159,7 +163,7 @@ The NAT Gateway costs ~$1.08/day and is disabled by default. To include it:
 INCLUDE_NAT_GATEWAY=true npm run deploy
 
 # Via CDK context
-cdk deploy -c includeNatGateway=true
+npx cdk deploy -c includeNatGateway=true --require-approval never
 ```
 
 ---
@@ -171,7 +175,7 @@ Deploys a Simple AD directory + one AlwaysOn WorkSpace to validate `workspaces-i
 ```bash
 INCLUDE_WORKSPACES=true npm run deploy
 # or
-cdk deploy -c includeWorkspaces=true
+npx cdk deploy -c includeWorkspaces=true --require-approval never
 ```
 
 ---
@@ -248,14 +252,15 @@ pnpm nx build cli
 
 ## Estimated Costs
 
-These are monthly-equivalent figures, useful for comparing resources — not what a real deploy→validate→destroy cycle costs (a few dollars, see the full breakdown).
+These are monthly-equivalent figures, useful for comparing resources — not what a real deploy→validate→destroy cycle costs (~$2-4 for a single run, see the full breakdown).
 
 | Scenario | Cost/day | Cost/week |
 |----------|----------|-----------|
-| Base stack only, without NAT Gateway | ~$1.20 | ~$8.40 |
-| Base stack + NAT Gateway | ~$2.28 | ~$15.96 |
-| Full stack (base + all vertical scanners) | ~$22.30 | ~$156.10 |
-| Full stack + WorkSpaces | ~$30.70 | ~$214.90 |
+| Full stack (all vertical scanners, no WorkSpaces) | ~$24 | ~$168 |
+| Full stack + NAT Gateway | ~$25 | ~$175 |
+| Full stack + WorkSpaces | ~$32 | ~$224 |
+
+A single deploy→validate→destroy cycle takes ~1 hour and costs **~$2-4** depending on options.
 
 Full breakdown: [docs/en/COSTS.md](docs/en/COSTS.md)
 
@@ -281,12 +286,14 @@ Full breakdown: [docs/en/COSTS.md](docs/en/COSTS.md)
 2. Has at least 5-10 minutes passed? (CloudWatch needs time to register zero-traffic)
 3. Are you using `--min-age-days 0`? (the validation script does this, but remember it when running manually)
 4. Are you using `--live-pricing`? Required for ElastiCache, Redshift, OpenSearch, MSK, DocumentDB, Neptune, MQ, and WorkSpaces — without it those scanners never run (`npm run validate*` already pass it)
+5. `ebs-idle` needs 48h of zero-I/O metrics — won't pass on a deploy→validate→destroy cycle of < 48h (see Known Limitations)
 
 ### cdk deploy fails
 
-1. Did you bootstrap? `cdk bootstrap aws://ACCOUNT/REGION`
-2. Do credentials have sufficient permissions? You need broad permissions — see [docs/en/GUIDE.md](docs/en/GUIDE.md) for the full IAM policy (EC2, RDS, ElastiCache, Redshift, OpenSearch, MSK, FSx, EFS, Amazon MQ, Kinesis, ELB, S3, Lambda, DynamoDB, CloudWatch, IAM, Secrets Manager, and — with `includeWorkspaces` — WorkSpaces/Directory Service)
+1. Did you bootstrap? `npx cdk bootstrap aws://ACCOUNT/REGION`
+2. Do credentials have sufficient permissions? You need broad permissions — see [docs/en/GUIDE.md](docs/en/GUIDE.md) for the full IAM policy
 3. WorkSpaces bundle ID invalid? See "Known Limitations" in [docs/en/ARCHITECTURE.md](docs/en/ARCHITECTURE.md)
+4. **Deploy ordering**: MSK only starts creating after all Analytics and Databases resources are confirmed. If Redshift or OpenSearch fail, the rollback is fast (no stuck MSK in CREATING state)
 
 ---
 

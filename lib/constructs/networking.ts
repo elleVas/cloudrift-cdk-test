@@ -71,6 +71,12 @@ export class Networking extends Construct {
       vpcId: this.vpc.vpcId,
       vpnGatewayId: vpnGateway.ref,
     });
+    // Ensure VPC is fully ready (Internet GW attached, routes in place)
+    // before attaching the VPN gateway — prevents "conflicting pending
+    // workflow" errors during rollback/delete.
+    vpcVpnAttachment.addDependency(
+      this.vpc.node.findChild('IGW') as cdk.CfnResource
+    );
     const customerGateway = new ec2.CfnCustomerGateway(this, 'CustomerGateway', {
       type: 'ipsec.1',
       bgpAsn: 65000,

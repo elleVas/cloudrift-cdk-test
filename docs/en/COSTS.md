@@ -2,7 +2,7 @@
 
 Detailed cost estimate for resources deployed by the stack.
 
-> Prices refer to **us-east-1** (June 2026). Other regions may vary by 5–15%.
+> Prices refer to **eu-central-1** (July 2026). Other regions may vary by 5–15%.
 
 ---
 
@@ -28,7 +28,7 @@ Detailed cost estimate for resources deployed by the stack.
 | RDS storage 20GB gp3 (stopped) | Storage | — | $0.053 | $1.60 |
 | EFS (near-empty) | Storage | $0.00 | $0.00 | ~$0.00 |
 | ElastiCache cache.t4g.micro | Database | $0.016 | $0.38 | $11.68 |
-| Redshift dc2.large (1 node) | Database | $0.250 | $6.00 | $182.50 |
+| Redshift ra3.xlplus (1 node) | Database | $1.086 | $26.06 | $792.78 |
 | OpenSearch t3.small.search + 10GB | Analytics | $0.037 | $0.89 | $27.08 |
 | MSK 2× kafka.t3.small + storage | Streaming | $0.085 | $2.05 | $62.34 |
 | FSx for Lustre 1200GiB SCRATCH_2 ⚠️ | Storage | ~$0.233 | ~$5.60 | ~$168 |
@@ -38,7 +38,7 @@ Detailed cost estimate for resources deployed by the stack.
 | VPN Site-to-Site connection | Network | $0.050 | $1.20 | $36.50 |
 | Transit Gateway + 1 attachment | Network | $0.050 | $1.20 | $36.50 |
 | Kinesis 1 shard (provisioned) | Streaming | $0.015 | $0.36 | $10.95 |
-| Secrets Manager (Redshift managed password) | Secret | — | $0.013 | $0.40 |
+| Secrets Manager (Redshift password) | Secret | — | $0.013 | $0.40 |
 | **NAT Gateway** (optional) | Network | $0.045 | $1.08 | $32.85 |
 | **WorkSpaces + Simple AD** (opt-in) | Compute | ~$0.35 | ~$8.40 | ~$255 |
 
@@ -54,23 +54,23 @@ These are monthly-equivalent figures (useful for comparing resources), not what 
 
 | Scenario | Cost/day | Cost/week | Cost/month |
 |----------|----------|-----------|------------|
-| **Base stack only** (pre-existing resources, no NAT) | ~$1.20 | ~$8.40 | ~$36.16 |
-| **Base stack + NAT Gateway** | ~$2.28 | ~$15.96 | ~$69.01 |
-| **Full stack** (base + all vertical scanners, no WorkSpaces) | ~$22.30 | ~$156.10 | ~$677 |
-| **Full stack + WorkSpaces** | ~$30.70 | ~$214.90 | ~$932 |
+| **Base stack only** (pre-existing resources, no NAT) | ~$1.20 | ~$8.40 | ~$36 |
+| **Base stack + NAT Gateway** | ~$2.28 | ~$15.96 | ~$69 |
+| **Full stack** (base + all vertical scanners, no WorkSpaces) | ~$42 | ~$294 | ~$1,280 |
+| **Full stack + WorkSpaces** | ~$50 | ~$350 | ~$1,535 |
 
 ---
 
 ## What a real test cycle actually costs
 
-The totals above assume a resource stays up for a full day/week/month — but the intended workflow is `npm run test:full` (deploy → post-deploy → wait 5min → validate → you run `npm run cleanup`), a cycle of roughly 1-2 hours once you account for MSK/DocumentDB/Neptune/Redshift/OpenSearch provisioning time. At the **full stack** hourly rate (~$0.93/hour combined), a 2-hour test cycle costs **under $2**. Cost only becomes a real concern if the stack is left running for days — always run `npm run cleanup` right after validating.
+The totals above assume a resource stays up for a full day/week/month — but the intended workflow is `npm run test:full` (deploy → post-deploy → wait 5min → validate → you run `npm run cleanup`), a cycle of roughly 1-2 hours once you account for MSK/DocumentDB/Neptune/Redshift/OpenSearch provisioning time. At the **full stack** hourly rate (~$1.75/hour combined), a 2-hour test cycle costs **~$3-4**. Cost only becomes a real concern if the stack is left running for days — always run `npm run cleanup` right after validating.
 
 ---
 
 ## Biggest Cost Drivers
 
-1. **FSx for Lustre** (~$168/month) — 1200 GiB is the practical minimum for SCRATCH_2, no smaller Lustre tier exists
-2. **Redshift** (~$182.50/month) — dc2.large is the smallest node type available, no "micro" option
+1. **Redshift** (~$793/month) — ra3.xlplus is the smallest ra3 node type available in all regions; dc2.large was retired in some regions (including eu-central-1)
+2. **FSx for Lustre** (~$168/month) — 1200 GiB is the practical minimum for SCRATCH_2, no smaller Lustre tier exists
 3. **MSK** (~$62.34/month) — 2 brokers is the minimum for a 2-AZ provisioned cluster
 4. **Neptune** (~$59.86/month) — db.t3.medium is the smallest instance class, no "micro" tier
 5. **DocumentDB** (~$56.21/month) — same constraint as Neptune, no "micro" tier
@@ -95,7 +95,7 @@ The totals above assume a resource stays up for a full day/week/month — but th
 - **8–10GB EBS** is the minimum reasonable for a test volume
 - **5 RCU/WCU DynamoDB** is the minimum for provisioned mode
 - **ALB** has no cheaper alternative — base cost is fixed
-- **dc2.large** is the smallest Redshift node type — no smaller provisioned option exists
+- **ra3.xlplus** is the smallest Redshift ra3 node type — dc2.large is retired in some regions (e.g., eu-central-1), so ra3.xlplus is used for universal compatibility
 - **db.t3.medium** is the smallest instance class DocumentDB and Neptune support — neither offers a "micro" tier
 - **1200 GiB** is the practical minimum for FSx for Lustre SCRATCH_2 — chosen over FSx for Windows specifically to avoid requiring an Active Directory (see `docs/en/ARCHITECTURE.md`)
 
@@ -107,7 +107,7 @@ If you're iterating on the CDK stack itself (not on validation):
 
 ```bash
 # Deploy only the stack without extras
-cdk deploy CloudriftTestStack --exclusively
+npx cdk deploy CloudriftTestStack --exclusively
 ```
 
 Remember: every `cdk deploy` costs CloudFormation time + active resources until `destroy`.

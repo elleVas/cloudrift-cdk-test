@@ -4,7 +4,11 @@
 set -euo pipefail
 
 STACK_NAME="${STACK_NAME:-CloudriftTestStack}"
-REGION="${AWS_REGION:-us-east-1}"
+
+# Auto-detect region: use AWS_REGION / AWS_DEFAULT_REGION / aws configure,
+# in that order. CDK uses the same resolution so this always matches where
+# the stack was deployed.
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo "us-east-1")}}"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  post-deploy.sh — Stopping EC2 and RDS instances"

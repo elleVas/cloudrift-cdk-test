@@ -76,7 +76,7 @@ export class Streaming extends Construct {
     const mqBroker = new mq.CfnBroker(this, 'MqBroker', {
       brokerName: 'cloudrift-test-idle-broker',
       engineType: 'ACTIVEMQ',
-      engineVersion: '5.17.6',
+      engineVersion: '5.18',
       hostInstanceType: 'mq.t3.micro',
       deploymentMode: 'SINGLE_INSTANCE',
       publiclyAccessible: false,

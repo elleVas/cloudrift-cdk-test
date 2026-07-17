@@ -5,7 +5,10 @@ set -euo pipefail
 
 CLOUDRIFT_PATH="${CLOUDRIFT_PATH:-../../cloudrift}"
 CLI="$CLOUDRIFT_PATH/apps/cli/dist/main.js"
-REGION="${AWS_REGION:-us-east-1}"
+# Auto-detect region: use AWS_REGION / AWS_DEFAULT_REGION / aws configure,
+# in that order. CDK uses the same resolution so this always matches where
+# the stack was deployed.
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo "us-east-1")}}"
 OUT_DIR="/tmp/cloudrift-concurrency-test"
 CONCURRENCY_VALUES=(1 3 5 10 20)
 

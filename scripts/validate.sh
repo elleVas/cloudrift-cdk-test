@@ -4,7 +4,10 @@
 set -euo pipefail
 
 CLOUDRIFT_PATH="${CLOUDRIFT_PATH:-../../cloudrift}"
-REGION="${AWS_REGION:-us-east-1}"
+# Auto-detect region: use AWS_REGION / AWS_DEFAULT_REGION / aws configure,
+# in that order. CDK uses the same resolution so this always matches where
+# the stack was deployed.
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo "us-east-1")}}"
 REPORT_FILE="/tmp/cloudrift-validate-report.json"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

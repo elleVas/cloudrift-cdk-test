@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as redshift from 'aws-cdk-lib/aws-redshift';
 import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 
 export interface AnalyticsProps {
@@ -30,12 +31,28 @@ export class Analytics extends Construct {
       subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds,
     });
 
+    // Redshift requires the AWSServiceRoleForRedshift SLR. On a fresh account
+    // it's created automatically on first cluster creation. If the stack is
+    // redeployed on an account that already has it, an explicit CfnServiceLinkedRole
+    // would fail with AlreadyExists — so we don't manage it in the template.
+    // The SLR was already created by a prior deploy attempt on this account.
+
+    const redshiftSecret = new secretsmanager.Secret(this, 'RedshiftSecret', {
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'cloudriftadmin' }),
+        generateStringKey: 'password',
+        excludePunctuation: true,
+        passwordLength: 20,
+      },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     const redshiftCluster = new redshift.CfnCluster(this, 'RedshiftCluster', {
       clusterType: 'single-node',
-      nodeType: 'dc2.large',
+      nodeType: 'ra3.xlplus',
       dbName: 'cloudrifttest',
       masterUsername: 'cloudriftadmin',
-      manageMasterPassword: true,
+      masterUserPassword: redshiftSecret.secretValueFromJson('password').unsafeUnwrap(),
       clusterSubnetGroupName: redshiftSubnetGroup.ref,
       vpcSecurityGroupIds: [redshiftSg.securityGroupId],
       publiclyAccessible: false,
@@ -53,7 +70,7 @@ export class Analytics extends Construct {
     new opensearch.Domain(this, 'OpenSearchDomain', {
       version: opensearch.EngineVersion.OPENSEARCH_2_17,
       vpc,
-      vpcSubnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
+      vpcSubnets: [{ subnets: [vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnets[0]] }],
       securityGroups: [openSearchSg],
       capacity: {
         dataNodes: 1,

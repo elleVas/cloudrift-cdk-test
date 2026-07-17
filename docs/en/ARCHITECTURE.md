@@ -86,6 +86,28 @@ FSx for Windows File Server requires an Active Directory (Managed Microsoft AD o
 - 0 NAT Gateways by default (high cost, ~$32/month)
 - NAT can be enabled via context (`includeNatGateway: true`) to also test the `nat-gateway` scanner
 
+### Deploy ordering: MSK depends on Analytics + Databases
+
+MSK takes 20+ minutes to create and **cannot be deleted while in CREATING state**. If it starts in parallel with other resources and one of those fails, CloudFormation's rollback deadlocks for 20 minutes waiting for MSK to finish creating before it can delete it.
+
+Solution: explicit `node.addDependency()` in the main stack so the `Streaming` construct (which contains MSK) only starts after `Analytics` and `Databases` are fully confirmed. If Redshift, OpenSearch, or any database fails, MSK has not started creating yet → rollback is fast and clean.
+
+### Redshift: ra3.xlplus, not dc2.large
+
+`dc2.large` has been retired in some regions (notably eu-central-1) and fails with "Invalid node type". `ra3.xlplus` is the smallest ra3 node available everywhere. It costs more (~$1.09/h vs $0.25/h), but for a deploy→validate→destroy cycle of ~1 hour the difference is negligible.
+
+### ActiveMQ version: 5.18
+
+Engine version `5.17.6` was deprecated by AWS. The valid options are `5.18` and `5.19` (as of July 2026). We use `5.18` for stability.
+
+### RDS PostgreSQL version: 16.13
+
+Pinned minor version must exist in the deploy region. `16.4` was not available in eu-central-1; `16.13` is the latest stable minor in the CDK type system that's available across all regions.
+
+### Region auto-detection in scripts
+
+All scripts (`post-deploy.sh`, `validate.sh`, `concurrency-test.sh`) and `package.json` commands auto-detect the region using the same resolution order as CDK: `AWS_REGION` → `AWS_DEFAULT_REGION` → `aws configure get region` → `us-east-1` fallback. This eliminates the need to manually prefix commands with `AWS_REGION=...`.
+
 ### `includeWorkspaces`, opt-in and off by default
 
 Every other new resource in this extension is always deployed — cost was explicitly ruled out as a constraint for a deploy→validate→destroy cycle of a few hours. WorkSpaces is the one exception, and for a different reason: a Simple AD directory takes 20-45 minutes to reach `ACTIVE` before the WorkSpace can even be created, which meaningfully lengthens the whole cycle compared to every other resource here (minutes, not tens of minutes). Enable with `includeWorkspaces: true` (context or `INCLUDE_WORKSPACES=true`) when you specifically need to validate `workspaces-idle`.
@@ -113,16 +135,16 @@ cloudrift has a default grace period of 7 days — newly created resources aren'
 | `OverprovisionedTable` | DynamoDB | `dynamodb-overprovisioned` | RCU/WCU < 10% used |
 | `OrphanedEni` | ENI | `eni-orphaned` | `Status: available` |
 | `OrphanSnapshotCr` | EBS Snapshot | `ebs-snapshot` | Source volume deleted |
-| `RdsInstance` | RDS db.t3.micro | `rds-instance` | `status: stopped` |
+| `RdsInstance` | RDS PostgreSQL 16.13, db.t3.micro | `rds-instance` | `status: stopped` |
 | `UnusedEfs` | EFS | `efs-unused` | Zero mount targets, or mounted with zero I/O |
 | `ElastiCacheCluster` | cache.t4g.micro Redis | `elasticache-idle` | Zero connections (`--live-pricing`) |
-| `RedshiftCluster` | dc2.large | `redshift-idle-cluster` | Zero connections (`--live-pricing`) |
+| `RedshiftCluster` | ra3.xlplus | `redshift-idle-cluster` | Zero connections (`--live-pricing`) |
 | `OpenSearchDomain` | t3.small.search | `opensearch-idle-domain` | Zero search/index traffic (`--live-pricing`) |
 | `MskCluster` | 2× kafka.t3.small, PROVISIONED | `msk-idle-cluster` | Zero broker traffic (`--live-pricing`) |
 | `IdleFsx` | FSx for Lustre SCRATCH_2 | `fsx-idle-filesystem` | Zero I/O |
 | `DocumentDbCluster` | db.t3.medium | `documentdb-idle-instance` | Zero connections (`--live-pricing`) |
 | `NeptuneCluster` | db.t3.medium | `neptune-idle-instance` | Zero query traffic (`--live-pricing`) |
-| `MqBroker` | mq.t3.micro, SINGLE_INSTANCE | `mq-idle-broker` | Zero network traffic (`--live-pricing`) |
+| `MqBroker` | mq.t3.micro, ActiveMQ 5.18, SINGLE_INSTANCE | `mq-idle-broker` | Zero network traffic (`--live-pricing`) |
 | `IdleVpnConnection` | Site-to-Site VPN | `vpn-connection-idle` | Zero tunnel traffic |
 | `IdleTransitGatewayAttachment` | TGW + VPC attachment | `transit-gateway-idle-attachment` | Zero traffic |
 | `IdleStream` | Kinesis, 1 shard, PROVISIONED | `kinesis-provisioned-idle-stream` | Zero incoming activity |
