@@ -14,9 +14,21 @@ function contextFlag(app: cdk.App, key: string, envVar: string): boolean {
   return contextValue === true || contextValue === 'true' || process.env[envVar] === 'true';
 }
 
+// Same as contextFlag but with a configurable default (for opt-out flags).
+function contextFlagDefault(app: cdk.App, key: string, envVar: string, defaultValue: boolean): boolean {
+  const contextValue = app.node.tryGetContext(key);
+  if (contextValue !== undefined) return contextValue === true || contextValue === 'true';
+  if (process.env[envVar] !== undefined) return process.env[envVar] === 'true';
+  return defaultValue;
+}
+
 const config: IStackConfig = {
-  includeNatGateway: contextFlag(app, 'includeNatGateway', 'INCLUDE_NAT_GATEWAY'),
+  includeNatGateway: contextFlagDefault(app, 'includeNatGateway', 'INCLUDE_NAT_GATEWAY', true),
   includeWorkspaces: contextFlag(app, 'includeWorkspaces', 'INCLUDE_WORKSPACES'),
+  includeSageMaker: contextFlag(app, 'includeSageMaker', 'INCLUDE_SAGEMAKER'),
+  includeEks: contextFlag(app, 'includeEks', 'INCLUDE_EKS'),
+  includeAuroraServerless: contextFlag(app, 'includeAuroraServerless', 'INCLUDE_AURORA_SERVERLESS'),
+  includeTimeDependentResources: contextFlag(app, 'includeTimeDependentResources', 'INCLUDE_TIME_DEPENDENT'),
 };
 
 new CloudriftTestStack(app, 'CloudriftTestStack', {

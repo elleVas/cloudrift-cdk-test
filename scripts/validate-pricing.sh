@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# validate.sh — Runs cloudrift WITHOUT --live-pricing and checks the
-# "always-on" scanners (static pricing, no per-instance-type lookup).
-# For the live-pricing scanners, run: npm run validate:pricing
+# validate-pricing.sh — Runs cloudrift WITH --live-pricing and checks the
+# scanners that require per-instance-type pricing lookups via the AWS Pricing API.
+# Run AFTER validate.sh (standard scanners) to get the full picture.
 set -euo pipefail
 
 CLOUDRIFT_PATH="${CLOUDRIFT_PATH:-../../cloudrift}"
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo "us-east-1")}}"
-REPORT_FILE="/tmp/cloudrift-validate-standard.json"
+REPORT_FILE="/tmp/cloudrift-validate-pricing.json"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  validate.sh — Standard scanners (no --live-pricing)"
+echo "  validate-pricing.sh — Live-pricing scanners (--live-pricing)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -24,7 +24,7 @@ fi
 echo "→ Using cloudrift at: $CLOUDRIFT_MAIN"
 echo "→ Scanning region: $REGION"
 echo "→ Using --min-age-days 0 (no grace period for test resources)"
-echo "→ NOT using --live-pricing (standard scanners only)"
+echo "→ Using --live-pricing (per-instance-type pricing via AWS Pricing API)"
 echo ""
 
 # --- Run cloudrift ---
@@ -33,6 +33,7 @@ node "$CLOUDRIFT_MAIN" analyze \
   --regions "$REGION" \
   --all-services \
   --min-age-days 0 \
+  --live-pricing \
   --format json \
   > "$REPORT_FILE" 2>/dev/null || true
 
@@ -45,50 +46,38 @@ fi
 echo "→ Report generated. Checking findings..."
 echo ""
 
-# --- Expected kinds: always-on scanners that DON'T require --live-pricing ---
-# These scanners use static pricing (flat per-GB, per-unit) and are always registered.
+# --- Expected kinds: scanners that REQUIRE --live-pricing ---
+# These scanners need per-instance-type pricing from the AWS Pricing API.
 EXPECTED_KINDS=(
-  "ebs-volume"
-  "elastic-ip"
-  "ec2-instance"
-  "ebs-idle"
-  "ebs-gp2-upgrade"
-  "load-balancer"
-  "log-group"
-  "s3-no-lifecycle"
-  "lambda-underutilized"
-  "dynamodb-overprovisioned"
-  "eni-orphaned"
-  "ebs-snapshot"
-  "rds-instance"
-  "efs-unused"
-  "fsx-idle-filesystem"
-  "vpn-connection-idle"
-  "transit-gateway-idle-attachment"
-  "kinesis-provisioned-idle-stream"
-  "lambda-loggroup-orphaned"
+  "elasticache-idle"
+  "redshift-idle-cluster"
+  "opensearch-idle-domain"
+  "msk-idle-cluster"
+  "documentdb-idle-instance"
+  "neptune-idle-instance"
+  "mq-idle-broker"
 )
 
-# NAT Gateway (default: on)
-if [ "${INCLUDE_NAT_GATEWAY:-true}" = "true" ]; then
-  EXPECTED_KINDS+=("nat-gateway")
-fi
-
-# Time-dependent always-on scanners (opt-in — require 7-14d of metrics)
+# Time-dependent live-pricing scanners (opt-in — require 7-14d)
 if [ "${INCLUDE_TIME_DEPENDENT:-false}" = "true" ]; then
-  EXPECTED_KINDS+=("sqs-dlq-abandoned")
-  EXPECTED_KINDS+=("aurora-serverless-overprovisioned")
-  EXPECTED_KINDS+=("environment-ghost")
+  EXPECTED_KINDS+=("ec2-underutilized")
+  EXPECTED_KINDS+=("rds-underutilized")
 fi
 
-# EKS orphan PVC (opt-in — but NOT live-pricing gated, uses static EBS pricing)
-if [ "${INCLUDE_EKS:-false}" = "true" ]; then
-  EXPECTED_KINDS+=("eks-orphan-pvc")
+# WorkSpaces (opt-in)
+if [ "${INCLUDE_WORKSPACES:-false}" = "true" ]; then
+  EXPECTED_KINDS+=("workspaces-idle")
 fi
 
-# SageMaker training orphaned (opt-in — static S3 pricing, not live-pricing gated)
+# SageMaker (opt-in — notebook + endpoint require live pricing)
 if [ "${INCLUDE_SAGEMAKER:-false}" = "true" ]; then
-  EXPECTED_KINDS+=("sagemaker-training-orphaned")
+  EXPECTED_KINDS+=("sagemaker-notebook-idle")
+  EXPECTED_KINDS+=("sagemaker-endpoint-idle")
+fi
+
+# EKS node overprovisioned (opt-in — requires live pricing + 168h metrics)
+if [ "${INCLUDE_EKS:-false}" = "true" ] && [ "${INCLUDE_TIME_DEPENDENT:-false}" = "true" ]; then
+  EXPECTED_KINDS+=("eks-node-overprovisioned")
 fi
 
 PASS_COUNT=0
@@ -115,7 +104,7 @@ done
 
 # --- Print results ---
 echo "┌─────────────────────────────────────────────────────────────────┐"
-echo "│  Standard Scanner Results (no --live-pricing)                   │"
+echo "│  Live-Pricing Scanner Results (--live-pricing)                  │"
 echo "├─────────────────────────────────────────────────────────────────┤"
 for R in "${RESULTS[@]}"; do
   echo "│ $R"
@@ -137,22 +126,23 @@ data = json.load(sys.stdin)
 print(f\"\${data.get('totalOptimizationMonthlyUsd', 0):.2f}\")
 " 2>/dev/null || echo "?.??")
 
-echo "  Waste total:        $WASTE_TOTAL/month"
+echo "  Waste total:        $WASTE_TOTAL/month  (includes standard + pricing)"
 echo "  Optimization total: $OPT_TOTAL/month"
 echo ""
 
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "  ✔ ALL PASSED ($PASS_COUNT/$TOTAL standard kinds detected)"
+  echo "  ✔ ALL PASSED ($PASS_COUNT/$TOTAL live-pricing kinds detected)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   exit 0
 else
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "  ✗ FAILED ($FAIL_COUNT/$TOTAL standard kinds NOT detected)"
+  echo "  ✗ FAILED ($FAIL_COUNT/$TOTAL live-pricing kinds NOT detected)"
   echo ""
   echo "  Possible causes:"
   echo "  - CloudWatch metrics need more time (wait 5-10 min after post-deploy)"
   echo "  - Resource was not created properly (check stack outputs)"
+  echo "  - AWS Pricing API connectivity issue"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   exit 1
 fi

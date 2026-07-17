@@ -11,20 +11,24 @@
     "destroy": "cdk destroy --force",
     "post-deploy": "bash scripts/post-deploy.sh",
     "validate": "bash scripts/validate.sh",
+    "validate:pricing": "bash scripts/validate-pricing.sh",
+    "validate:both": "npm run validate && npm run validate:pricing",
     "validate:pdf": "node ${CLOUDRIFT_PATH:-../../cloudrift}/apps/cli/dist/main.js analyze --regions ${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}} --all-services --min-age-days 0 --live-pricing --pdf",
     "validate:cli": "node ${CLOUDRIFT_PATH:-../../cloudrift}/apps/cli/dist/main.js analyze --regions ${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}} --all-services --min-age-days 0 --live-pricing",
-    "test:full": "npm run deploy && npm run post-deploy && echo '⏳ Waiting 5 min for CloudWatch metrics...' && sleep 300 && npm run validate",
+    "test:full": "npm run deploy && npm run post-deploy && echo '⏳ Waiting 5 min for CloudWatch metrics...' && sleep 300 && npm run validate:both",
+    "test:all:deploy": "INCLUDE_NAT_GATEWAY=true INCLUDE_AURORA_SERVERLESS=true INCLUDE_TIME_DEPENDENT=true INCLUDE_SAGEMAKER=true INCLUDE_EKS=true INCLUDE_WORKSPACES=true npm run deploy && npm run post-deploy",
     "cleanup": "npm run destroy"
   },
   "dependencies": {
+    "@aws-cdk/lambda-layer-kubectl-v30": "^2.0.4",
     "aws-cdk-lib": "^2.150.0",
     "constructs": "^10.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "aws-cdk": "^2.150.0",
     "ts-node": "^10.9.2",
-    "typescript": "~5.5.0",
-    "aws-cdk": "^2.150.0"
+    "typescript": "~5.5.0"
   },
   "engines": {
     "node": ">=18"

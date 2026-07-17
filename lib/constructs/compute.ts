@@ -5,10 +5,12 @@ import { Construct } from 'constructs';
 export interface ComputeProps {
   readonly vpc: ec2.Vpc;
   readonly stoppedInstanceSg: ec2.SecurityGroup;
+  /** Deploy the underutilized instance (requires 7d of metrics). Default: false. */
+  readonly includeUnderutilized?: boolean;
 }
 
 /**
- * Compute construct: EC2 instances (stopped + idle with gp2 volume).
+ * Compute construct: EC2 instances (stopped + idle with gp2 volume + optionally underutilized).
  */
 export class Compute extends Construct {
   public readonly stoppedInstance: ec2.Instance;
@@ -56,5 +58,27 @@ export class Compute extends Construct {
       description: 'EC2 instance to stop post-deploy',
     });
     output.overrideLogicalId('StoppedInstanceId');
+
+    // ─── Running EC2 instance with near-zero CPU — optimization: ec2-underutilized
+    //     Requires 7+ days of metrics. Gated behind includeUnderutilized.
+    if (props.includeUnderutilized) {
+      const underutilizedSg = new ec2.SecurityGroup(this, 'UnderutilizedSg', {
+        vpc,
+        description: 'SG for the underutilized EC2 instance',
+        allowAllOutbound: false,
+      });
+
+      new ec2.Instance(this, 'UnderutilizedInstance', {
+        vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+        instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+        machineImage: ec2.MachineImage.latestAmazonLinux2023(),
+        securityGroup: underutilizedSg,
+        blockDevices: [{
+          deviceName: '/dev/xvda',
+          volume: ec2.BlockDeviceVolume.ebs(8, { volumeType: ec2.EbsDeviceVolumeType.GP3 }),
+        }],
+      });
+    }
   }
 }

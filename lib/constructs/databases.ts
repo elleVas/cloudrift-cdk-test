@@ -8,10 +8,12 @@ import { Construct } from 'constructs';
 
 export interface DatabasesProps {
   readonly vpc: ec2.Vpc;
+  /** Deploy the underutilized RDS instance (requires 7d of metrics). Default: false. */
+  readonly includeUnderutilized?: boolean;
 }
 
 /**
- * Databases construct: RDS (stopped), DocumentDB, Neptune, ElastiCache —
+ * Databases construct: RDS (stopped + underutilized), DocumentDB, Neptune, ElastiCache —
  * all left idle with zero connections/traffic.
  */
 export class Databases extends Construct {
@@ -110,5 +112,29 @@ export class Databases extends Construct {
       vpcSecurityGroupIds: [elastiCacheSg.securityGroupId],
     });
     elastiCacheCluster.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
+
+    // ─── RDS instance running but underutilized (near-zero CPU)
+    //     optimization: rds-underutilized
+    //     Requires 7+ days of metrics. Gated behind includeUnderutilized.
+    if (props.includeUnderutilized) {
+      const rdsUnderutilizedSg = new ec2.SecurityGroup(this, 'RdsUnderutilizedSg', {
+        vpc,
+        description: 'SG for the underutilized RDS instance (blocks all inbound)',
+        allowAllOutbound: false,
+      });
+
+      new rds.DatabaseInstance(this, 'RdsUnderutilizedInstance', {
+        vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_13 }),
+        instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+        allocatedStorage: 20,
+        storageType: rds.StorageType.GP3,
+        securityGroups: [rdsUnderutilizedSg],
+        credentials: rds.Credentials.fromGeneratedSecret('postgres'),
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+        deletionProtection: false,
+      });
+    }
   }
 }
