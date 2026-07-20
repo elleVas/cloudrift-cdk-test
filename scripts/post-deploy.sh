@@ -63,11 +63,30 @@ fi
 # --- Stop RDS instance (waste: rds-instance) ---
 if [ -n "$RDS_INSTANCE_ID" ] && [ "$RDS_INSTANCE_ID" != "None" ]; then
   echo ""
-  echo "→ Stopping RDS instance: $RDS_INSTANCE_ID"
-  aws rds stop-db-instance --db-instance-identifier "$RDS_INSTANCE_ID" --region "$REGION" > /dev/null 2>&1 || true
-  echo "  Waiting for instance to stop (can take several minutes)..."
-  aws rds wait db-instance-stopped --db-instance-identifier "$RDS_INSTANCE_ID" --region "$REGION" 2>/dev/null || true
-  echo "  ✔ RDS instance stopped"
+  RDS_STATUS=$(aws rds describe-db-instances \
+    --db-instance-identifier "$RDS_INSTANCE_ID" \
+    --region "$REGION" \
+    --query "DBInstances[0].DBInstanceStatus" \
+    --output text 2>/dev/null || echo "unknown")
+
+  if [ "$RDS_STATUS" = "stopped" ]; then
+    echo "→ RDS instance already stopped: $RDS_INSTANCE_ID"
+    echo "  ✔ No action needed"
+  elif [ "$RDS_STATUS" = "available" ]; then
+    echo "→ Stopping RDS instance: $RDS_INSTANCE_ID"
+    aws rds stop-db-instance --db-instance-identifier "$RDS_INSTANCE_ID" --region "$REGION" > /dev/null 2>&1 || true
+    echo "  Waiting for instance to stop (can take several minutes)..."
+    aws rds wait db-instance-stopped --db-instance-identifier "$RDS_INSTANCE_ID" --region "$REGION" 2>/dev/null || true
+    echo "  ✔ RDS instance stopped"
+  else
+    echo "→ RDS instance is in '$RDS_STATUS' state — waiting for available first..."
+    aws rds wait db-instance-available --db-instance-identifier "$RDS_INSTANCE_ID" --region "$REGION" 2>/dev/null || true
+    echo "→ Stopping RDS instance: $RDS_INSTANCE_ID"
+    aws rds stop-db-instance --db-instance-identifier "$RDS_INSTANCE_ID" --region "$REGION" > /dev/null 2>&1 || true
+    echo "  Waiting for instance to stop (can take several minutes)..."
+    aws rds wait db-instance-stopped --db-instance-identifier "$RDS_INSTANCE_ID" --region "$REGION" 2>/dev/null || true
+    echo "  ✔ RDS instance stopped"
+  fi
 else
   echo "  ⚠ No RDS instance ID found in stack outputs"
 fi
